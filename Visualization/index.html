@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>引水入城算法可视化 孟靖凯 202412689</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <h1>引水入城算法可视化 孟靖凯 202412689</h1>
+          <p id="resultText">载入样例后开始演示</p>
+        </div>
+        <div class="controls" aria-label="播放控制">
+          <button id="sampleOneBtn" type="button">样例一</button>
+          <button id="sampleTwoBtn" type="button">样例二</button>
+          <button id="blockedBtn" type="button">不可覆盖</button>
+          <button id="loadBtn" type="button">载入数据</button>
+          <button id="resetBtn" type="button">复位</button>
+          <button id="prevBtn" type="button">上一步</button>
+          <button id="nextBtn" type="button">下一步</button>
+          <button id="playBtn" type="button">播放</button>
+          <label class="speed">
+            <span>速度</span>
+            <input id="speedRange" type="range" min="120" max="1200" value="520" step="40">
+          </label>
+        </div>
+      </header>
+
+      <div class="stage">
+        <div class="map-panel">
+          <div class="terrain lake">湖泊</div>
+          <div id="grid" class="grid" aria-label="城市海拔网格"></div>
+          <div class="terrain desert">沙漠</div>
+          <div id="coverageBar" class="coverage-bar" aria-label="干旱区覆盖状态"></div>
+        </div>
+
+        <aside class="side-panel">
+          <div class="step-card">
+            <div class="step-index" id="stepIndex">0 / 0</div>
+            <h2 id="phaseTitle">等待载入</h2>
+            <p id="stepMessage">请选择样例或粘贴输入数据。</p>
+          </div>
+
+          <div class="panel-section">
+            <h2>输入数据</h2>
+            <textarea id="inputData" spellcheck="false"></textarea>
+          </div>
+
+          <div class="panel-section">
+            <h2>水源覆盖区间</h2>
+            <div id="intervalList" class="interval-list"></div>
+          </div>
+
+          <div class="panel-section">
+            <h2>区间覆盖图</h2>
+            <svg id="intervalChart" class="interval-chart" role="img" aria-label="第一行水源覆盖最后一行区间"></svg>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
+

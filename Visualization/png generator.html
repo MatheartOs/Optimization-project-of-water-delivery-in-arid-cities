@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>实验结果图片生成器</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #18202a;
+      background: #f4f7fb;
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 22px 0;
+    }
+    h1 {
+      margin: 0 0 14px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .panel {
+      border: 1px solid #d7e0e8;
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      box-shadow: 0 14px 36px rgba(20, 36, 56, 0.10);
+    }
+    textarea {
+      width: 100%;
+      min-height: 360px;
+      resize: vertical;
+      border: 1px solid #d7e0e8;
+      border-radius: 6px;
+      padding: 10px;
+      line-height: 1.45;
+      font-family: Consolas, "Microsoft YaHei", monospace;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    button {
+      min-height: 36px;
+      border: 1px solid #d7e0e8;
+      border-radius: 6px;
+      padding: 0 12px;
+      color: #18202a;
+      background: #fff;
+      cursor: pointer;
+    }
+    button.primary {
+      color: #fff;
+      background: #1f8fcf;
+      border-color: #1f8fcf;
+    }
+    .hint {
+      margin: 10px 0 0;
+      color: #667085;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border: 1px solid #d7e0e8;
+      border-radius: 8px;
+      background: #fff;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>实验结果图片生成器</h1>
+    <div class="layout">
+      <section class="panel">
+        <textarea id="input" spellcheck="false" placeholder="粘贴 C++ 输入格式数据，例如第一行 N M，后面 N 行每行 M 个海拔值。"></textarea>
+        <div class="actions">
+          <button id="renderBtn" class="primary" type="button">生成图片</button>
+          <button id="copyBtn" type="button">复制 PNG</button>
+          <button id="downloadBtn" type="button">下载 PNG</button>
+      </section>
+      <section class="panel">
+        <canvas id="canvas" width="980" height="720"></canvas>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const INF = 1_000_000_000;
+    const input = document.getElementById("input");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const message = document.getElementById("message");
+    let lastTitle = "引水入城实验结果";
+    const FLOW_COLORS = [
+      "#e85d75",
+      "#1f8fcf",
+      "#1f9d66",
+      "#e6a91f",
+      "#8a5cf6",
+      "#00a6a6",
+      "#ef7f35",
+      "#4d7c0f"
+    ];
+
+    function parseInput(text) {
+      const nums = text.trim().split(/\s+/).map(Number);
+      if (nums.length < 2 || nums.some(Number.isNaN)) throw new Error("输入必须全部为数字。");
+      const n = nums[0], m = nums[1];
+      if (!Number.isInteger(n) || !Number.isInteger(m) || n <= 0 || m <= 0) {
+        throw new Error("第一行必须为正整数 N M。");
+      }
+      if (nums.length !== 2 + n * m) throw new Error(`海拔数量不匹配，应为 ${n * m} 个。`);
+      const high = [];
+      let p = 2;
+      for (let i = 0; i < n; i++) {
+        high.push(nums.slice(p, p + m));
+        p += m;
+      }
+      return { n, m, high };
+    }
+
+    function solve(data) {
+      const { n, m, high } = data;
+      const vis = Array.from({ length: n }, () => Array(m).fill(false));
+      const l = Array.from({ length: n }, () => Array(m).fill(INF));
+      const r = Array.from({ length: n }, () => Array(m).fill(0));
+      for (let j = 0; j < m; j++) l[n - 1][j] = r[n - 1][j] = j + 1;
+
+      const dx = [1, 0, -1, 0];
+      const dy = [0, 1, 0, -1];
+      function dfs(x, y) {
+        vis[x][y] = true;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + dx[d], ny = y + dy[d];
+          if (nx < 0 || ny < 0 || nx >= n || ny >= m) continue;
+          if (high[nx][ny] >= high[x][y]) continue;
+          if (!vis[nx][ny]) dfs(nx, ny);
+          l[x][y] = Math.min(l[x][y], l[nx][ny]);
+          r[x][y] = Math.max(r[x][y], r[nx][ny]);
+        }
+      }
+      for (let j = 0; j < m; j++) if (!vis[0][j]) dfs(0, j);
+
+      const missing = [];
+      for (let j = 0; j < m; j++) if (!vis[n - 1][j]) missing.push(j);
+      if (missing.length) return { possible: false, answer: missing.length, missing, selected: [], vis, l, r };
+
+      const selected = [];
+      let left = 1;
+      while (left <= m) {
+        let right = 0, best = -1;
+        for (let j = 0; j < m; j++) {
+          if (l[0][j] <= left && r[0][j] > right) {
+            right = r[0][j];
+            best = j;
+          }
+        }
+        if (best < 0) break;
+        selected.push(best);
+        left = right + 1;
+      }
+      return { possible: true, answer: selected.length, missing, selected, vis, l, r };
+    }
+
+    function colorForHeight(value, min, max) {
+      if (max === min) return "#8ace75";
+      const t = (value - min) / (max - min);
+      const a = t < 0.5 ? [239, 217, 99] : [134, 206, 117];
+      const b = t < 0.5 ? [134, 206, 117] : [92, 176, 213];
+      const k = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
+      const rgb = a.map((x, i) => Math.round(x + (b[i] - x) * k));
+      return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+    }
+
+    function hexToRgba(hex, alpha) {
+      const raw = hex.replace("#", "");
+      const r = parseInt(raw.slice(0, 2), 16);
+      const g = parseInt(raw.slice(2, 4), 16);
+      const b = parseInt(raw.slice(4, 6), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    function buildFlowPlan(data, result) {
+      const { n, m, high } = data;
+      if (!result.possible) {
+        return { paths: [], bottomOwner: Array(m).fill(-1), ranges: [], selectedColor: new Map() };
+      }
+
+      const selectedColor = new Map(result.selected.map((source, index) => [
+        source,
+        FLOW_COLORS[index % FLOW_COLORS.length]
+      ]));
+      const bottomOwner = Array(m).fill(-1);
+      const ranges = [];
+      let left = 1;
+
+      result.selected.forEach((source, index) => {
+        const right = Math.min(m, result.r[0][source]);
+        if (right >= left) {
+          for (let col = left; col <= right; col++) bottomOwner[col - 1] = index;
+          ranges.push({ source, index, start: left, end: right });
+        }
+        left = right + 1;
+      });
+
+      const paths = [];
+      for (const range of ranges) {
+        for (let target = range.start; target <= range.end; target++) {
+          const cells = findFlowPath(range.source, target);
+          if (cells.length) paths.push({ ...range, target, cells });
+        }
+      }
+
+      return { paths, bottomOwner, ranges, selectedColor };
+
+      function findFlowPath(sourceCol, targetCol) {
+        const path = [];
+        const seen = new Set();
+        const dx = [1, 0, 0, -1];
+        const dy = [0, -1, 1, 0];
+
+        function search(x, y) {
+          const key = `${x},${y}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          path.push([x, y]);
+
+          if (x === n - 1 && y === targetCol - 1) return true;
+
+          const next = [];
+          for (let d = 0; d < 4; d++) {
+            const nx = x + dx[d], ny = y + dy[d];
+            if (nx < 0 || ny < 0 || nx >= n || ny >= m) continue;
+            if (high[nx][ny] >= high[x][y]) continue;
+            if (result.l[nx][ny] <= targetCol && targetCol <= result.r[nx][ny]) {
+              next.push([nx, ny]);
+            }
+          }
+
+          next.sort((a, b) => {
+            const da = Math.abs(a[1] - (targetCol - 1)) - a[0] * 0.01;
+            const db = Math.abs(b[1] - (targetCol - 1)) - b[0] * 0.01;
+            return da - db;
+          });
+
+          for (const [nx, ny] of next) {
+            if (search(nx, ny)) return true;
+          }
+          path.pop();
+          return false;
+        }
+
+        return search(0, sourceCol) ? path.slice() : [];
+      }
+    }
+
+    function draw() {
+      try {
+        const data = parseInput(input.value);
+        const result = solve(data);
+        const { n, m, high } = data;
+        const flat = high.flat();
+        const min = Math.min(...flat), max = Math.max(...flat);
+        const cell = Math.max(22, Math.min(34, Math.floor(620 / m)));
+        const gridW = cell * m, gridH = cell * n;
+        const sideW = 300;
+        const w = gridW + sideW + 90;
+        const h = Math.max(gridH + 170, 560);
+        canvas.width = w * 2;
+        canvas.height = h * 2;
+        canvas.style.maxWidth = `${w}px`;
+        ctx.setTransform(2, 0, 0, 2, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = "#f7fbff";
+        ctx.fillRect(0, 0, w, h);
+
+        const gx = 36, gy = 78;
+        ctx.fillStyle = "#18202a";
+        ctx.font = "700 24px Microsoft YaHei";
+        lastTitle = result.possible ? `可全覆盖：最少 ${result.answer} 个蓄水厂` : `不可全覆盖：${result.answer} 个干旱城市未通水`;
+        ctx.fillText(lastTitle, 34, 38);
+        ctx.font = "14px Microsoft YaHei";
+        ctx.fillStyle = "#667085";
+        ctx.fillText(`网格规模：${n} x ${m}    水流规则：只能流向相邻更低城市`, 34, 62);
+
+        ctx.fillStyle = "#35a8dd";
+        ctx.fillRect(gx, gy - 38, gridW, 28);
+        ctx.fillStyle = "#fff";
+        ctx.font = "700 16px Microsoft YaHei";
+        ctx.fillText("湖泊", gx + 10, gy - 18);
+
+        const selected = new Set(result.selected);
+        const missing = new Set(result.missing);
+        const flow = buildFlowPlan(data, result);
+        const pathCellColor = new Map();
+        for (const path of flow.paths) {
+          const color = FLOW_COLORS[path.index % FLOW_COLORS.length];
+          for (const [i, j] of path.cells) {
+            if (!pathCellColor.has(`${i},${j}`)) pathCellColor.set(`${i},${j}`, color);
+          }
+        }
+
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < m; j++) {
+            const x = gx + j * cell, y = gy + i * cell;
+            ctx.fillStyle = colorForHeight(high[i][j], min, max);
+            if (i === n - 1 && missing.has(j)) ctx.fillStyle = "#f0a1a1";
+            ctx.fillRect(x, y, cell, cell);
+            if (result.vis[i][j]) {
+              ctx.fillStyle = "rgba(31,143,207,0.25)";
+              ctx.fillRect(x + 3, y + 3, cell - 6, cell - 6);
+            }
+            if (pathCellColor.has(`${i},${j}`)) {
+              ctx.fillStyle = hexToRgba(pathCellColor.get(`${i},${j}`), 0.34);
+              ctx.fillRect(x + 4, y + 4, cell - 8, cell - 8);
+            }
+            ctx.strokeStyle = "#111827";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, cell, cell);
+            if (i === 0 && selected.has(j)) {
+              ctx.strokeStyle = flow.selectedColor.get(j) || "#e77c2f";
+              ctx.lineWidth = 4;
+              ctx.strokeRect(x + 2, y + 2, cell - 4, cell - 4);
+            }
+          }
+        }
+
+        for (const path of flow.paths) {
+          const color = FLOW_COLORS[path.index % FLOW_COLORS.length];
+          ctx.beginPath();
+          path.cells.forEach(([i, j], index) => {
+            const x = gx + j * cell + cell / 2;
+            const y = gy + i * cell + cell / 2;
+            if (index === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.strokeStyle = hexToRgba(color, 0.88);
+          ctx.lineWidth = Math.max(3, cell * 0.13);
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          ctx.stroke();
+        }
+
+        for (const range of flow.ranges) {
+          const color = FLOW_COLORS[range.index % FLOW_COLORS.length];
+          const sourceX = gx + range.source * cell + cell / 2;
+          const sourceY = gy + cell / 2;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(sourceX, sourceY, Math.max(5, cell * 0.18), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
+        if (cell >= 26) {
+          for (let i = 0; i < n; i++) {
+            for (let j = 0; j < m; j++) {
+              const x = gx + j * cell, y = gy + i * cell;
+              ctx.fillStyle = "#111827";
+              ctx.font = "700 11px Consolas";
+              ctx.textAlign = "center";
+              ctx.fillText(String(high[i][j]), x + cell / 2, y + cell / 2 + 4);
+              ctx.textAlign = "start";
+            }
+          }
+        }
+
+        ctx.fillStyle = "#f3dc59";
+        ctx.fillRect(gx, gy + gridH + 10, gridW, 28);
+        ctx.fillStyle = "#18202a";
+        ctx.font = "700 16px Microsoft YaHei";
+        ctx.fillText("沙漠 / 干旱区", gx + 10, gy + gridH + 30);
+
+        const barY = gy + gridH + 48;
+        for (let j = 0; j < m; j++) {
+          const x = gx + j * cell;
+          if (result.possible && flow.bottomOwner[j] >= 0) {
+            ctx.fillStyle = FLOW_COLORS[flow.bottomOwner[j] % FLOW_COLORS.length];
+          } else {
+            ctx.fillStyle = result.possible ? "#1f9d66" : (missing.has(j) ? "#d94b4b" : "#1f9d66");
+          }
+          ctx.fillRect(x, barY, cell, 20);
+          ctx.strokeStyle = "#fff";
+          ctx.strokeRect(x, barY, cell, 20);
+        }
+
+        const sx = gx + gridW + 36;
+        ctx.fillStyle = "#18202a";
+        ctx.font = "700 20px Microsoft YaHei";
+        ctx.fillText("实验结论", sx, gy);
+        ctx.font = "15px Microsoft YaHei";
+        if (result.possible) {
+          ctx.fillText(`输出：1，最少 ${result.answer} 个蓄水厂`, sx, gy + 34);
+          ctx.fillText(`选址：${result.selected.map(j => `(1,${j + 1})`).join("、")}`, sx, gy + 60);
+        } else {
+          ctx.fillText(`输出：0，未通水城市 ${result.answer} 个`, sx, gy + 34);
+          ctx.fillText(`坐标：${result.missing.map(j => `(${n},${j + 1})`).join("、")}`, sx, gy + 60);
+        }
+
+        if (flow.ranges.length) {
+          ctx.font = "700 16px Microsoft YaHei";
+          ctx.fillStyle = "#18202a";
+          ctx.fillText("蓄水厂颜色图例", sx, gy + 96);
+          ctx.font = "14px Microsoft YaHei";
+          flow.ranges.forEach((range, index) => {
+            const y = gy + 122 + index * 24;
+            const color = FLOW_COLORS[range.index % FLOW_COLORS.length];
+            ctx.fillStyle = color;
+            ctx.fillRect(sx, y - 13, 18, 12);
+            ctx.fillStyle = "#344054";
+            ctx.fillText(`(1,${range.source + 1}) 覆盖 [${range.start},${range.end}]`, sx + 28, y - 3);
+          });
+        }
+
+        const intervalTitleY = flow.ranges.length ? gy + 134 + flow.ranges.length * 24 : gy + 108;
+        ctx.font = "700 18px Microsoft YaHei";
+        ctx.fillStyle = "#18202a";
+        ctx.fillText("第一行水源区间", sx, intervalTitleY);
+        ctx.font = "13px Consolas";
+        const rowH = 18;
+        for (let j = 0; j < Math.min(m, 20); j++) {
+          const y = intervalTitleY + 28 + j * rowH;
+          const range = result.l[0][j] >= INF ? "none" : `[${result.l[0][j]},${result.r[0][j]}]`;
+          ctx.fillStyle = selected.has(j) ? (flow.selectedColor.get(j) || "#e77c2f") : "#344054";
+          ctx.fillText(`(1,${String(j + 1).padStart(2, " ")}) ${range}`, sx, y);
+        }
+        if (m > 20) {
+          ctx.fillStyle = "#667085";
+          ctx.fillText("更多区间已省略，可在主可视化页面查看。", sx, intervalTitleY + 28 + 21 * rowH);
+        }
+        message.textContent = "图片已生成。可以复制 PNG 或下载后插入论文。";
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    async function copyPng() {
+      canvas.toBlob(async (blob) => {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          message.textContent = "PNG 图片已复制到剪贴板。";
+        } catch {
+          message.textContent = "浏览器未允许复制图片，请使用“下载 PNG”。";
+        }
+      }, "image/png");
+    }
+
+    function downloadPng() {
+      const a = document.createElement("a");
+      a.download = `${lastTitle}.png`;
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    }
+
+    document.getElementById("renderBtn").addEventListener("click", draw);
+    document.getElementById("copyBtn").addEventListener("click", copyPng);
+    document.getElementById("downloadBtn").addEventListener("click", downloadPng);
+  </script>
+</body>
+</html>
